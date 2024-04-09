@@ -300,11 +300,12 @@ app.openapi(PropertyListingsRoute, async (c) => {
       "available",
     ]);
 
+    const recordCount = sqlQuery.rows.length;
+
     return c.json({
       success: true,
-      after: sqlQuery.rows.length
-        ? sqlQuery.rows[sqlQuery.rows.length - 1].id
-        : null,
+      before: recordCount ? sqlQuery.rows[0].id : null,
+      after: recordCount ? sqlQuery.rows[recordCount - 1].id : null,
       data: sqlQuery.rows,
     });
   } catch (error: any) {
@@ -528,10 +529,53 @@ app.openapi(WebhookCreatePropertyListingRoute, async (c) => {
 app.openapi(WebhookUpdateDelistedPropertyListingRoute, async (c) => {
   const { client, pool } = await getPoolDb(c.env.DATABASE_URL);
   const requestBody = c.req.valid("json");
-  return c.json({
-    success: true,
-    data: "Webhook received (delisted)",
-  });
+  try {
+    const getListing = await client.query(
+      `SELECT listing.id, listing_type.name AS listing_type FROM listing 
+			INNER JOIN listing_type ON listing_type.id = listing.listing_type_id
+			WHERE listing_url = $1`,
+      [requestBody.listing_url]
+    );
+
+    if (getListing.rowCount === 0) {
+      return c.json({
+        success: true,
+        data: "Listing does not exist",
+      });
+    }
+
+    const listingType = getListing.rows[0].listing_type;
+
+    if (listingType === "For Sale") {
+      await client.query(
+        "UPDATE listing SET property_status_id = 3 WHERE id = $1",
+        [getListing.rows[0].id]
+      );
+    }
+
+    if (listingType === "For Rent") {
+      await client.query(
+        "UPDATE listing SET property_status_id = 2 WHERE id = $1",
+        [getListing.rows[0].id]
+      );
+    }
+
+    return c.json({
+      success: true,
+      data: "Webhook received (delisted)",
+    });
+  } catch (error: any) {
+    console.error(error);
+    return c.json(
+      {
+        success: false,
+        data: error.message,
+      },
+      { status: 500 }
+    );
+  } finally {
+    pool.end();
+  }
 });
 
 app.get(

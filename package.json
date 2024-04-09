@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dev": "wrangler dev src/index.ts",
-    "deploy": "wrangler deploy --env prod --minify src/index.ts"
+    "deploy": "wrangler deploy --minify src/index.ts"
   },
   "dependencies": {
     "@clerk/backend": "^0.38.6",
