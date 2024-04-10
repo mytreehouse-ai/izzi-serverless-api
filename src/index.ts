@@ -11,6 +11,7 @@ import slugify from "slugify";
 import { corsConfig } from "./config/cors";
 import { getPoolDb } from "./database";
 import { ListingTypesRoute } from "./routes/listingTypes";
+import { PropertyListingRoute } from "./routes/propertyListing";
 import { PropertyListingsRoute } from "./routes/propertyListings";
 import { PropertyTypesRoute } from "./routes/propertyTypes";
 import { WebhookCreatePropertyListingRoute } from "./routes/webhookCreatePropertyListing";
@@ -25,7 +26,7 @@ export type Env = {
 
 const app = new OpenAPIHono<{ Bindings: Env }>();
 
-// const token = "honoiscool";
+const token = "honoiscool";
 
 app.use("*", cors(corsConfig));
 app.use("/v1/*", clerkMiddleware());
@@ -34,11 +35,6 @@ app.use(logger(customLogger));
 app.use(poweredBy());
 app.use(prettyJSON());
 app.use(secureHeaders());
-
-app.openAPIRegistry.registerComponent("securitySchemes", "Bearer", {
-  type: "http",
-  scheme: "bearer",
-});
 
 app.openapi(PropertyTypesRoute, async (c) => {
   const { client, pool } = await getPoolDb(c.env.DATABASE_URL);
@@ -130,10 +126,10 @@ app.openapi(PropertyListingsRoute, async (c) => {
     const session = await clerkClient.sessions.getSession(auth.sessionId);
     const user = await clerkClient.users.getUser(auth.userId);
 
-    const defaultQueryBuilder = `
+    const defaultSqlQuery = `
 			SELECT
 				listing.id,
-				listing.listing_title,
+				INITCAP(listing.listing_title) AS listing_title,
 				listing.listing_url,
 				listing.price,
 				listing.price_formatted,
@@ -155,6 +151,8 @@ app.openapi(PropertyListingsRoute, async (c) => {
 				property.features,
 				property.main_image_url,
 				ST_AsGeoJSON(listing.coordinates) :: json->'coordinates' AS coordinates,
+				listing.latitude_in_text,
+				listing.longitude_in_text,
 				listing.description,
 				listing.created_at
 			FROM listing
@@ -203,11 +201,11 @@ app.openapi(PropertyListingsRoute, async (c) => {
 			LIMIT 5
 		`;
 
-    const queryBuilderWithWordSimilaritySearch = `
+    const sqlQueryWithWordSimilaritySearch = `
 			WITH similarity AS (
 				SELECT
 					listing.id,
-					listing.listing_title,
+					INITCAP(listing.listing_title) AS listing_title,
 					listing.listing_url,
 					listing.price,
 					listing.price_formatted,
@@ -229,6 +227,8 @@ app.openapi(PropertyListingsRoute, async (c) => {
 					property.features,
 					property.main_image_url,
 					ST_AsGeoJSON(listing.coordinates) :: json->'coordinates' AS coordinates,
+					listing.latitude_in_text,
+					listing.longitude_in_text,
 					WORD_SIMILARITY(listing.description, '${
             queryParams.search
           }') AS description_similarity,
@@ -285,28 +285,99 @@ app.openapi(PropertyListingsRoute, async (c) => {
 			LIMIT 5;
 		`;
 
-    const sqlQueryBuilder = queryParams?.search
-      ? queryBuilderWithWordSimilaritySearch
-      : defaultQueryBuilder;
+    const sqlQuery = queryParams?.search
+      ? sqlQueryWithWordSimilaritySearch
+      : defaultSqlQuery;
 
     if (c.env.NODE_ENV === "development") {
-      customLogger(
-        "Property listing sql query:",
-        removeExtraSpaces(sqlQueryBuilder)
-      );
+      customLogger("Property listing sql query:", removeExtraSpaces(sqlQuery));
     }
 
-    const sqlQuery = await client.query(removeExtraSpaces(sqlQueryBuilder), [
+    const query = await client.query(removeExtraSpaces(sqlQuery), [
       "available",
     ]);
 
-    const recordCount = sqlQuery.rows.length;
+    const recordCount = query.rows.length;
 
     return c.json({
       success: true,
-      before: recordCount ? sqlQuery.rows[0].id : null,
-      after: recordCount ? sqlQuery.rows[recordCount - 1].id : null,
-      data: sqlQuery.rows,
+      before: recordCount ? query.rows[0].id : null,
+      after: recordCount ? query.rows[recordCount - 1].id : null,
+      data: query.rows,
+    });
+  } catch (error: any) {
+    console.error(error);
+    return c.json(
+      {
+        success: false,
+        data: error.message,
+      },
+      { status: 500 }
+    );
+  } finally {
+    pool.end();
+  }
+});
+
+app.openapi(PropertyListingRoute, async (c) => {
+  const { client, pool } = await getPoolDb(c.env.DATABASE_URL);
+  const auth = getAuth(c);
+  const params = c.req.valid("param");
+
+  try {
+    if (!auth?.userId && !auth?.sessionId) {
+      return c.json(
+        {
+          success: false,
+          data: "Unauthorized",
+        },
+        { status: 401 }
+      );
+    }
+
+    const sqlQuery = `
+			SELECT
+				listing.id,
+				INITCAP(listing.listing_title) AS listing_title,
+				listing.listing_url,
+				listing.price,
+				listing.price_formatted,
+				listing_type.name AS listing_type,
+				property_status.name AS property_status,
+				property_type.name AS property_type,
+				listing.sub_category,
+				property.building_name,
+				property.subdivision_name,
+				property.floor_area,
+				property.lot_area,
+				property.building_size,
+				property.bedrooms,
+				property.bathrooms,
+				property.parking_space,
+				city.name AS city,
+				property.area,
+				property.address,
+				property.features,
+				property.main_image_url,
+				ST_AsGeoJSON(listing.coordinates) :: json->'coordinates' AS coordinates,
+				listing.latitude_in_text,
+				listing.longitude_in_text,
+				listing.description,
+				listing.created_at
+			FROM listing
+			INNER JOIN listing_type ON listing_type.id = listing.listing_type_id
+			INNER JOIN property_status ON property_status.id = listing.property_status_id
+			INNER JOIN property ON property.listing_id = listing.id
+			INNER JOIN property_type ON property_type.id = property.property_type_id
+			INNER JOIN city ON city.id = property.city_id
+			WHERE listing.id = $1
+		`;
+
+    const query = await client.query(sqlQuery, [params.id]);
+
+    return c.json({
+      success: true,
+      data: query.rows[0],
     });
   } catch (error: any) {
     console.error(error);
@@ -578,6 +649,11 @@ app.openapi(WebhookUpdateDelistedPropertyListingRoute, async (c) => {
   }
 });
 
+app.openAPIRegistry.registerComponent("securitySchemes", "Bearer", {
+  type: "http",
+  scheme: "bearer",
+});
+
 app.get(
   "/swagger",
   swaggerUI({
@@ -591,6 +667,7 @@ app.doc("/doc", {
     version: "v1.0.0",
   },
   tags: [{ name: "Property Listing" }],
+  servers: [{ url: "http://localhost:8787" }],
   openapi: "3.1.0",
 });
 

@@ -1,17 +1,9 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { createApiResponse } from "~/utils/createApiResponse";
+import { processNumber } from "~/utils/processNumber";
 
 const propertyTypes = z.enum(["condominium", "house", "warehouse", "land"]);
 const listingTypes = z.enum(["for-sale", "for-rent"]);
-
-function processNumber(val: string) {
-  const floatParsed = parseFloat(val);
-  if (!isNaN(floatParsed)) {
-    return floatParsed;
-  }
-  const intParsed = parseInt(val);
-  return isNaN(intParsed) ? 0 : intParsed;
-}
 
 const querySchema = z.object({
   search: z.string().optional(),

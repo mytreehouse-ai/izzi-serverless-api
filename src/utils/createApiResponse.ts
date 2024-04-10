@@ -8,7 +8,7 @@ type ApiResponse = {
 } & (
   | {
       success: true;
-      data: z.ZodTypeAny | string;
+      data: z.ZodTypeAny;
     }
   | {
       success: false;
