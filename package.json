@@ -5,7 +5,7 @@
   },
   "dependencies": {
     "@clerk/backend": "^0.38.6",
-    "@hono/clerk-auth": "^1.0.1",
+    "@hono/clerk-auth": "^2.0.0",
     "@hono/swagger-ui": "^0.2.1",
     "@hono/zod-openapi": "^0.10.0",
     "@hono/zod-validator": "^0.2.1",
