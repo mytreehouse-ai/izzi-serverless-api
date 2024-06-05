@@ -7,7 +7,7 @@
     "@clerk/backend": "^0.38.6",
     "@hono/clerk-auth": "^1.0.1",
     "@hono/swagger-ui": "^0.2.1",
-    "@hono/zod-openapi": "^0.10.0",
+    "@hono/zod-openapi": "^0.14.2",
     "@hono/zod-validator": "^0.2.1",
     "@neondatabase/serverless": "^0.9.0",
     "hono": "^4.2.2",
